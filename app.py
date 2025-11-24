@@ -10,7 +10,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- CUSTOM CSS ---
 st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
@@ -210,3 +209,4 @@ else:
             
     else:
         st.info("👈 Silakan masukkan kata kunci di sidebar kiri untuk memulai analisis.")
+
