@@ -1,6 +1,2 @@
 streamlit
-tensorflow
 pandas
-numpy
-Sastrawi
-nltk
