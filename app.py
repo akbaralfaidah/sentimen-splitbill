@@ -103,7 +103,7 @@ with st.sidebar:
 @st.cache_data
 def load_data():
     try:
-        df = pd.read_csv('HASIL_AKHIR_SKOR_POLARITAS.csv')
+        df = pd.read_csv('HASIL_AKHIR_SKOR_POLARITAS_V2.csv')
         return df
     except FileNotFoundError:
         return None
@@ -238,3 +238,4 @@ else:
 
     else:
         st.warning("⚠️ Tidak ditemukan tweet yang cocok dengan filter tersebut.")
+
