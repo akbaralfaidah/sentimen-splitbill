@@ -59,33 +59,39 @@ st.markdown("""
 # --- JUDUL APLIKASI ---
 st.title("📊 Analisis Sentimen Isu Split Bill")
 
-# --- MANAJEMEN STATE (NAVIGASI) ---
-if 'page_number' not in st.session_state:
-    st.session_state.page_number = 1
+# --- MANAJEMEN STATE TERPISAH (SOLUSI BUG PAGINATION) ---
+# Kita buat variabel halaman khusus untuk setiap tab
+if 'page_all' not in st.session_state: st.session_state.page_all = 1
+if 'page_neg' not in st.session_state: st.session_state.page_neg = 1
+if 'page_pos' not in st.session_state: st.session_state.page_pos = 1
+if 'page_net' not in st.session_state: st.session_state.page_net = 1
 
-def reset_page():
-    st.session_state.page_number = 1
+def reset_all_pages():
+    st.session_state.page_all = 1
+    st.session_state.page_neg = 1
+    st.session_state.page_pos = 1
+    st.session_state.page_net = 1
 
-def change_page(delta):
-    st.session_state.page_number += delta
+# Fungsi khusus untuk tombol loncat (Locator) -> Mengubah halaman 'All Data'
+def jump_to_page_all(target_page):
+    st.session_state.page_all = target_page
 
-def set_page(page_num):
-    st.session_state.page_number = page_num
+# Callback navigasi generik
+def change_page(key, delta):
+    st.session_state[key] += delta
 
 # --- SIDEBAR: INPUT DATA ---
 with st.sidebar:
     st.header("🔍 Mode 1: Filter Data")
     st.caption("Gunakan ini untuk menyaring data.")
     
-    # Filter Data (Reset halaman jika filter berubah)
-    filter_keyword = st.text_input("Filter Kata", value="", placeholder="Hanya tampilkan yang berisi...", on_change=reset_page)
-    exclude_word = st.text_input("Kecualikan Kata", value="", placeholder="Contoh: KUA", on_change=reset_page)
+    filter_keyword = st.text_input("Filter Kata", value="", placeholder="Hanya tampilkan yang berisi...", on_change=reset_all_pages)
+    exclude_word = st.text_input("Kecualikan Kata", value="", placeholder="Contoh: KUA", on_change=reset_all_pages)
     
     st.markdown("---")
     st.header("🔎 Mode 2: Cari Posisi")
-    st.caption("Cari lokasi data tanpa menyaring.")
+    st.caption("Cari lokasi data di tab 'All Data'.")
     
-    # Locator (Tidak mereset halaman saat mengetik, hanya saat tombol diklik)
     locator_keyword = st.text_input("Cari Lokasi Kata", value="", placeholder="Ketik kata...")
     
     st.markdown("---")
@@ -95,7 +101,7 @@ with st.sidebar:
         "Baris per Halaman",
         options=[10, 20, 50, 100],
         index=0,
-        on_change=reset_page
+        on_change=reset_all_pages
     )
 
 # --- FUNGSI LOAD DATA ---
@@ -111,7 +117,7 @@ df = load_data()
 
 # --- LOGIKA UTAMA ---
 if df is None:
-    st.error("❌ File 'HASIL_AKHIR_SKOR_POLARITAS.csv' tidak ditemukan. Pastikan file ada di folder yang sama.")
+    st.error("❌ File 'HASIL_AKHIR_SKOR_POLARITAS.csv' tidak ditemukan.")
 else:
     # 1. Logika Filter Data
     if filter_keyword:
@@ -141,9 +147,8 @@ else:
         df_filtered['sentimen_kategori'] = df_filtered['skor_polaritas'].apply(categorize_sentiment)
 
         # 3. LOGIKA PENCARI POSISI (LOCATOR)
-        # Diletakkan sebelum tabel agar tombolnya muncul di atas
         if locator_keyword:
-            # Cari di dalam df_filtered (data yang sedang aktif)
+            # Cari di dalam df_filtered (konteks All Data)
             matches = df_filtered[df_filtered['text'].str.contains(r'\b' + re.escape(locator_keyword) + r'\b', case=False, regex=True, na=False)]
             
             if not matches.empty:
@@ -161,20 +166,19 @@ else:
                 with col_loc1:
                     st.markdown(f"""
                     <div class="search-result">
-                        <b>✅ Ditemukan!</b> Kata <b>"{locator_keyword}"</b> ada di Data Nomor <b>{nomor_urut}</b> (Halaman <b>{target_page}</b>).
+                        <b>✅ Ditemukan!</b> Kata <b>"{locator_keyword}"</b> ada di Data Nomor <b>{nomor_urut}</b> (Halaman <b>{target_page}</b> Tab 'All Data').
                     </div>
                     """, unsafe_allow_html=True)
                 with col_loc2:
-                    # CALLBACK KHUSUS UNTUK LONCAT
-                    # args=(target_page,) mengirim nomor halaman ke fungsi set_page
-                    st.button(f"🚀 Pergi ke Hal {target_page}", on_click=set_page, args=(target_page,), type="primary")
+                    # CALLBACK KHUSUS: Update hanya 'page_all'
+                    st.button(f"🚀 Pergi ke Hal {target_page}", on_click=jump_to_page_all, args=(target_page,), type="primary")
             else:
                 st.error(f"❌ Kata '{locator_keyword}' tidak ditemukan dalam data yang sedang ditampilkan.")
 
-        # --- BAGIAN TABEL & PAGINATION ---
-        # st.markdown("---")
+        # --- BAGIAN TABEL ---
+        st.subheader("Data Tabel")
         
-        # Tabs
+        # Tab
         tab_neg, tab_pos, tab_net, tab_all = st.tabs(["🔴 Negative", "🟢 Positive", "⚪ Neutral", "📂 All Data"])
         
         def paginated_dataframe(dataset, key_prefix):
@@ -182,33 +186,31 @@ else:
                 st.write("Tidak ada data.")
                 return
 
-            # Hitung Total Halaman
+            # Tentukan nama variabel state yang dipakai (page_all, page_neg, dst)
+            state_key = f"page_{key_prefix}"
+
             total_rows = len(dataset)
             total_pages = math.ceil(total_rows / limit_rows)
             
-            # PROTEKSI HALAMAN (Agar tidak error saat pindah tab/filter)
-            # Jika halaman saat ini > total halaman baru, paksa balik ke halaman 1
-            if st.session_state.page_number > total_pages:
-                st.session_state.page_number = 1
+            # PROTEKSI HALAMAN (Hanya untuk state tab ini)
+            if st.session_state[state_key] > total_pages:
+                st.session_state[state_key] = 1
             
-            current_page = st.session_state.page_number
+            current_page = st.session_state[state_key]
             
-            # Hitung Slice Index
             start_idx = (current_page - 1) * limit_rows
             end_idx = start_idx + limit_rows
             
-            # Ambil Data
+            # Slice Data
             batch_df = dataset.iloc[start_idx:end_idx].copy()
-            
-            # Formatting Data
             batch_df['skor_polaritas'] = batch_df['skor_polaritas'].round(4)
-            # Tambah Nomor Urut (Relatif terhadap filter saat ini)
+            
+            # Nomor Urut Relatif
             batch_df.insert(0, 'No', range(start_idx + 1, start_idx + len(batch_df) + 1))
 
-            # Tinggi Tabel Dinamis
             calc_height = (len(batch_df) * 35) + 38
             
-            # TAMPILKAN TABEL
+            # Tabel
             st.dataframe(
                 batch_df[['No', 'text', 'sentimen_kategori', 'skor_polaritas']], 
                 use_container_width=True, 
@@ -222,20 +224,18 @@ else:
                 }
             )
             
-            # KONTROL PAGINATION (Tombol di bawah)
             st.markdown(f"<div class='page-info'>Halaman {current_page} dari {total_pages} (Total: {total_rows} data)</div>", unsafe_allow_html=True)
             
             col_prev, col_spacer, col_next = st.columns([1, 4, 1])
             
+            # Tombol Navigasi memanggil change_page dengan kunci spesifik tab ini
             with col_prev:
-                # Callback args=( -1 ) artinya kurangi 1
-                st.button("⬅️ Sebelumnya", key=f"{key_prefix}_prev", on_click=change_page, args=(-1,), disabled=(current_page == 1))
+                st.button("⬅️ Sebelumnya", key=f"prev_{key_prefix}", on_click=change_page, args=(state_key, -1), disabled=(current_page == 1))
             
             with col_next:
-                # Callback args=( 1 ) artinya tambah 1
-                st.button("Selanjutnya ➡️", key=f"{key_prefix}_next", on_click=change_page, args=(1,), disabled=(current_page == total_pages))
+                st.button("Selanjutnya ➡️", key=f"next_{key_prefix}", on_click=change_page, args=(state_key, 1), disabled=(current_page == total_pages))
 
-        # Render Tabs
+        # Render Tabs (Kirim kode unik: neg, pos, net, all)
         with tab_neg:
             df_neg = df_filtered[df_filtered['sentimen_kategori'] == 'Negative'].sort_values('skor_polaritas', ascending=True)
             paginated_dataframe(df_neg, "neg")
@@ -249,7 +249,6 @@ else:
             paginated_dataframe(df_net, "net")
 
         with tab_all:
-            # Tampilkan urut index aslinya agar konsisten
             paginated_dataframe(df_filtered, "all")
 
     else:
