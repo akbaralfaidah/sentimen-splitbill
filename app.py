@@ -79,7 +79,7 @@ with st.sidebar:
 def load_data():
     try:
         # Ganti nama file jika perlu
-        df = pd.read_csv('HASIL_AKHIR_SKOR_POLARITAS.csv')
+        df = pd.read_csv('HASIL_AKHIR_SKOR_POLARITAS_V2.csv')
         return df
     except FileNotFoundError:
         return None
@@ -202,3 +202,4 @@ else:
             
     else:
         st.info("👈 Silakan masukkan kata kunci di sidebar kiri untuk memulai analisis.")
+
