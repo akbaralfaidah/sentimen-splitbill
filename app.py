@@ -3,7 +3,6 @@ import pandas as pd
 import re
 import math
 
-# --- KONFIGURASI HALAMAN ---
 st.set_page_config(
     page_title="Analisis Sentimen Skripsi",
     page_icon="📊",
@@ -79,7 +78,8 @@ with st.sidebar:
 @st.cache_data
 def load_data():
     try:
-        df = pd.read_csv('HASIL_AKHIR_SKOR_POLARITAS_V2.csv')
+        # Ganti nama file jika perlu
+        df = pd.read_csv('HASIL_AKHIR_SKOR_POLARITAS.csv')
         return df
     except FileNotFoundError:
         return None
@@ -90,7 +90,6 @@ df = load_data()
 if df is None:
     st.error("❌ File 'HASIL_AKHIR_SKOR_POLARITAS.csv' tidak ditemukan. Pastikan file ada di folder yang sama.")
 else:
-    # 1. Filter Data
     if keyword:
         mask_include = df['text'].str.contains(r'\b' + re.escape(keyword) + r'\b', case=False, regex=True, na=False)
         
@@ -102,7 +101,6 @@ else:
             df_filtered = df[mask_include].copy()
             st.info(f"Menampilkan hasil untuk kata kunci: **'{keyword}'**")
 
-        # 2. Kategorisasi Sentimen
         def categorize_sentiment(score):
             if score > 0: return 'Positive'
             elif score < 0: return 'Negative'
@@ -111,27 +109,22 @@ else:
         if not df_filtered.empty:
             df_filtered['sentimen_kategori'] = df_filtered['skor_polaritas'].apply(categorize_sentiment)
 
-            # --- BAGIAN 1: STATISTIK ---
+            # --- STATISTIK ---
             st.subheader("1. Statistik")
             
             col1, col2, col3, col4 = st.columns(4)
-            
             total_tweet = len(df_filtered)
             counts = df_filtered['sentimen_kategori'].value_counts()
             
             def get_count(cat): return counts.get(cat, 0)
             def get_pct(cat): return (get_count(cat) / total_tweet * 100) if total_tweet > 0 else 0
 
-            with col1:
-                st.metric("Total Tweet", f"{total_tweet}")
-            with col2:
-                st.metric("Positive", f"{get_count('Positive')}", f"{get_pct('Positive'):.1f}%")
-            with col3:
-                st.metric("Neutral", f"{get_count('Neutral')}", f"{get_pct('Neutral'):.1f}%", delta_color="off")
-            with col4:
-                st.metric("Negative", f"{get_count('Negative')}", f"{get_pct('Negative'):.1f}%", delta_color="inverse")
+            with col1: st.metric("Total Tweet", f"{total_tweet}")
+            with col2: st.metric("Positive", f"{get_count('Positive')}", f"{get_pct('Positive'):.1f}%")
+            with col3: st.metric("Neutral", f"{get_count('Neutral')}", f"{get_pct('Neutral'):.1f}%", delta_color="off")
+            with col4: st.metric("Negative", f"{get_count('Negative')}", f"{get_pct('Negative'):.1f}%", delta_color="inverse")
 
-            # --- BAGIAN 2: EKSPLORASI DATA ---
+            # --- TABEL DATA ---
             st.markdown("---")
             st.subheader(f"2. Eksplorasi Data")
             
@@ -152,24 +145,24 @@ else:
                 start_idx = (current_page - 1) * limit_rows
                 end_idx = start_idx + limit_rows
                 
-                batch_df = dataset.iloc[start_idx:end_idx].copy()
+                # Slice data
+                batch_df = dataset.iloc[start_idx:end_idx].copy() # Pakai .copy() agar aman diedit
                 
-                # Pembulatan Data
+                # === PEMBULATAN DATA (INI SOLUSINYA) ===
+                # Kita bulatkan datanya langsung, bukan cuma tampilannya
                 batch_df['skor_polaritas'] = batch_df['skor_polaritas'].round(4)
 
                 calc_height = (len(batch_df) * 35) + 38
                 
-                # TAMPILKAN TABEL
                 st.dataframe(
-                    # === DI SINI PERUBAHANNYA (URUTAN KOLOM) ===
-                    batch_df[['text', 'skor_polaritas', 'sentimen_kategori']], 
+                    batch_df[['text', 'sentimen_kategori', 'skor_polaritas']], 
                     use_container_width=True, 
                     hide_index=True,
                     height=calc_height,
                     column_config={
                         "text": st.column_config.TextColumn("Tweet", width="large"),
-                        "skor_polaritas": st.column_config.NumberColumn("Skor"),
-                        "sentimen_kategori": st.column_config.TextColumn("Label", width="small")
+                        "sentimen_kategori": st.column_config.TextColumn("Label", width="small"),
+                        "skor_polaritas": st.column_config.NumberColumn("Skor") # Format sudah tidak perlu karena data sudah dibulatkan
                     }
                 )
                 
@@ -209,4 +202,3 @@ else:
             
     else:
         st.info("👈 Silakan masukkan kata kunci di sidebar kiri untuk memulai analisis.")
-
