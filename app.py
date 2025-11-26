@@ -44,6 +44,16 @@ st.markdown("""
             font-size: 14px;
             color: #555;
         }
+        
+        /* Style untuk Info Pencarian */
+        .search-result {
+            padding: 10px;
+            background-color: #e8f4f8;
+            border-left: 5px solid #3498db;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            color: #2980b9;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -64,40 +74,8 @@ def prev_page():
 def reset_page():
     st.session_state.page_number = 1
 
-# --- SIDEBAR: FILTER & PENCARIAN ---
-with st.sidebar:
-    st.header("🔍 Filter & Pencarian")
-    
-    # 1. Input Kata Kunci (Fitur Cari Utama)
-    keyword = st.text_input(
-        "Cari Tweet (Keyword)", 
-        value="", 
-        placeholder="Ketik kata kunci...", 
-        help="Ketik kata untuk memfilter data (biarkan kosong untuk melihat semua)", 
-        on_change=reset_page
-    )
-    
-    # 2. Input Exclude
-    exclude_word = st.text_input(
-        "Kecualikan Kata (Opsional)", 
-        value="", 
-        placeholder="Contoh: KUA", 
-        help="Tweet yang mengandung kata ini tidak akan ditampilkan", 
-        on_change=reset_page
-    )
-    
-    st.markdown("---")
-    st.header("⚙️ Pengaturan Tabel")
-    
-    limit_rows = st.selectbox(
-        "Baris per Halaman",
-        options=[10, 20, 50, 100],
-        index=0,
-        help="Pilih berapa banyak data yang ingin ditampilkan dalam satu halaman.",
-        on_change=reset_page
-    )
-    
-    st.caption("*Tekan Enter pada keyboard setelah mengetik untuk mencari.*")
+def set_page(page):
+    st.session_state.page_number = page
 
 # --- FUNGSI LOAD DATA ---
 @st.cache_data
@@ -110,30 +88,53 @@ def load_data():
 
 df = load_data()
 
+# --- SIDEBAR ---
+with st.sidebar:
+    st.header("🔍 Mode 1: Filter Data")
+    st.caption("Gunakan ini untuk menyaring data.")
+    
+    # 1. Filter Data (Lama)
+    filter_keyword = st.text_input("Filter Kata", value="", placeholder="Hanya tampilkan yang berisi...", on_change=reset_page)
+    exclude_word = st.text_input("Kecualikan Kata", value="", placeholder="Contoh: KUA", on_change=reset_page)
+    
+    st.markdown("---")
+    st.header("🔎 Mode 2: Cari Posisi (Locator)")
+    st.caption("Cari nomor urut data tanpa memfilter.")
+    
+    # 2. Pencari Posisi (Baru)
+    locator_keyword = st.text_input("Cari Lokasi Kata", value="", placeholder="Ketik kata untuk dicari posisinya...")
+    
+    st.markdown("---")
+    st.header("⚙️ Pengaturan Tabel")
+    
+    limit_rows = st.selectbox(
+        "Baris per Halaman",
+        options=[10, 20, 50, 100],
+        index=0,
+        on_change=reset_page
+    )
+
 # --- LOGIKA UTAMA ---
 if df is None:
-    st.error("❌ File 'HASIL_AKHIR_SKOR_POLARITAS.csv' tidak ditemukan. Pastikan file ada di folder yang sama.")
+    st.error("❌ File 'HASIL_AKHIR_SKOR_POLARITAS.csv' tidak ditemukan.")
 else:
-    # 1. Logika Filter (Pencarian)
-    if keyword:
-        mask_include = df['text'].str.contains(r'\b' + re.escape(keyword) + r'\b', case=False, regex=True, na=False)
+    # 1. Logika Filter
+    if filter_keyword:
+        mask_include = df['text'].str.contains(r'\b' + re.escape(filter_keyword) + r'\b', case=False, regex=True, na=False)
     else:
-        mask_include = pd.Series([True] * len(df)) # Ambil semua jika keyword kosong
+        mask_include = pd.Series([True] * len(df))
         
     if exclude_word:
         mask_exclude = df['text'].str.contains(r'\b' + re.escape(exclude_word) + r'\b', case=False, regex=True, na=False)
         df_filtered = df[mask_include & ~mask_exclude].copy()
-        
-        if keyword:
-            st.info(f"🔍 Menampilkan hasil pencarian: **'{keyword}'** (tanpa kata **'{exclude_word}'**)")
-        else:
-            st.info(f"📂 Menampilkan **SEMUA DATA** (tanpa kata **'{exclude_word}'**)")
     else:
         df_filtered = df[mask_include].copy()
-        if keyword:
-            st.info(f"🔍 Menampilkan hasil pencarian: **'{keyword}'**")
-        else:
-            st.success("📂 Menampilkan **SELURUH DATA** (Default)")
+
+    # Informasi Mode
+    if filter_keyword:
+        st.info(f"🔹 Mode Filter Aktif: Menampilkan data yang mengandung **'{filter_keyword}'**.")
+    else:
+        st.success("🔹 Menampilkan **SELURUH DATA** (Default).")
 
     # 2. Kategorisasi Sentimen
     def categorize_sentiment(score):
@@ -144,24 +145,41 @@ else:
     if not df_filtered.empty:
         df_filtered['sentimen_kategori'] = df_filtered['skor_polaritas'].apply(categorize_sentiment)
 
-        # --- BAGIAN 1: STATISTIK ---
-        st.subheader("1. Statistik Ringkas")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        total_tweet = len(df_filtered)
-        counts = df_filtered['sentimen_kategori'].value_counts()
-        
-        def get_count(cat): return counts.get(cat, 0)
-        def get_pct(cat): return (get_count(cat) / total_tweet * 100) if total_tweet > 0 else 0
+        # 3. LOGIKA PENCARI POSISI (LOCATOR)
+        if locator_keyword:
+            # Cari index pertama yang mengandung kata tersebut di dalam data yang sudah terfilter
+            matches = df_filtered[df_filtered['text'].str.contains(r'\b' + re.escape(locator_keyword) + r'\b', case=False, regex=True, na=False)]
+            
+            if not matches.empty:
+                first_match_idx = matches.index[0] # Index asli dataframe
+                
+                # Cari posisi urut relatif dalam data terfilter
+                # Kita reset index dulu untuk dapat nomor urut (0, 1, 2...)
+                df_reset = df_filtered.reset_index()
+                match_loc = df_reset[df_reset['index'] == first_match_idx].index[0]
+                
+                # Hitung Nomor Urut (mulai dari 1)
+                nomor_urut = match_loc + 1
+                
+                # Hitung Halaman
+                target_page = math.ceil(nomor_urut / limit_rows)
+                
+                st.markdown(f"""
+                <div class="search-result">
+                    <b>✅ Ditemukan!</b> Kata <b>"{locator_keyword}"</b> pertama kali muncul pada: <br>
+                    • <b>Nomor Urut:</b> {nomor_urut} <br>
+                    • <b>Halaman:</b> {target_page}
+                </div>
+                """, unsafe_allow_html=True)
+                
+                if st.button(f"🚀 Pergi ke Halaman {target_page}"):
+                    set_page(target_page)
+                    st.rerun()
+            else:
+                st.error(f"❌ Kata '{locator_keyword}' tidak ditemukan dalam data yang sedang ditampilkan.")
 
-        with col1: st.metric("Total Data", f"{total_tweet}")
-        with col2: st.metric("Positive", f"{get_count('Positive')}", f"{get_pct('Positive'):.1f}%")
-        with col3: st.metric("Neutral", f"{get_count('Neutral')}", f"{get_pct('Neutral'):.1f}%", delta_color="off")
-        with col4: st.metric("Negative", f"{get_count('Negative')}", f"{get_pct('Negative'):.1f}%", delta_color="inverse")
-
-        # --- BAGIAN 2: EKSPLORASI DATA ---
-        st.markdown("---")
-        st.subheader(f"2. Data Tabel")
+        # --- BAGIAN TABEL & PAGINATION ---
+        st.subheader(f"Data Tabel")
         
         tab_neg, tab_pos, tab_net, tab_all = st.tabs(["🔴 Negative", "🟢 Positive", "⚪ Neutral", "📂 All Data"])
         
@@ -180,20 +198,22 @@ else:
             start_idx = (current_page - 1) * limit_rows
             end_idx = start_idx + limit_rows
             
-            # --- PERSIAPAN DATA UNTUK TABEL ---
+            # Data Slice
             batch_df = dataset.iloc[start_idx:end_idx].copy()
             
-            # 1. Bulatkan Skor
+            # Formatting
             batch_df['skor_polaritas'] = batch_df['skor_polaritas'].round(4)
             
-            # 2. Tambahkan Kolom Nomor (No)
-            # Nomor dimulai dari start_idx + 1 agar berlanjut antar halaman (misal hal 2 mulai dr 11)
+            # Tambah Kolom No (Nomor Urut Global)
+            # Kita harus tahu index ini relatif terhadap apa.
+            # Jika di tab "All Data", No = index di df_filtered
+            # Jika di tab "Negative", No = urutan di dalam filter negatif
+            
+            # Agar konsisten, kita buat nomor urut berdasarkan posisi di tabel yang sedang dilihat
             batch_df.insert(0, 'No', range(start_idx + 1, start_idx + len(batch_df) + 1))
 
-            # Hitung tinggi tabel agar scroll halaman (bukan scroll tabel)
             calc_height = (len(batch_df) * 35) + 38
             
-            # --- TAMPILKAN DATAFRAME ---
             st.dataframe(
                 batch_df[['No', 'text', 'sentimen_kategori', 'skor_polaritas']], 
                 use_container_width=True, 
@@ -207,7 +227,6 @@ else:
                 }
             )
             
-            # --- KONTROL PAGINATION ---
             st.markdown(f"<div class='page-info'>Halaman {current_page} dari {total_pages} (Total: {total_rows} data)</div>", unsafe_allow_html=True)
             
             col_prev, col_spacer, col_next = st.columns([1, 4, 1])
@@ -218,24 +237,20 @@ else:
                 st.button("Selanjutnya ➡️", key=f"{key_prefix}_next", on_click=next_page, disabled=(current_page == total_pages))
 
         with tab_neg:
-            st.markdown("##### Data Negative")
             df_neg = df_filtered[df_filtered['sentimen_kategori'] == 'Negative'].sort_values('skor_polaritas', ascending=True)
             paginated_dataframe(df_neg, "neg")
             
         with tab_pos:
-            st.markdown("##### Data Positive")
             df_pos = df_filtered[df_filtered['sentimen_kategori'] == 'Positive'].sort_values('skor_polaritas', ascending=False)
             paginated_dataframe(df_pos, "pos")
             
         with tab_net:
-            st.markdown("##### Data Neutral")
             df_net = df_filtered[df_filtered['sentimen_kategori'] == 'Neutral']
             paginated_dataframe(df_net, "net")
 
         with tab_all:
-            st.markdown("##### Semua Data (Terfilter)")
+            # Default sort index agar urutan stabil
             paginated_dataframe(df_filtered, "all")
 
     else:
         st.warning("⚠️ Tidak ditemukan tweet yang cocok dengan filter tersebut.")
-
