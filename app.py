@@ -50,28 +50,22 @@ st.markdown("""
 # --- JUDUL APLIKASI ---
 st.title("📊 Analisis Sentimen Isu Split Bill")
 
-# --- INITIALIZE SESSION STATE ---
-if 'page_number' not in st.session_state:
-    st.session_state.page_number = 1
-
-# Fungsi Callback untuk Pagination (Lebih Stabil)
-def next_page():
-    st.session_state.page_number += 1
-
-def prev_page():
-    st.session_state.page_number -= 1
-
-def reset_page():
-    st.session_state.page_number = 1
+# --- STATE MANAGEMENT (FUNGSI RESET) ---
+# Kita mereset semua state halaman jika filter berubah
+def reset_all_pages():
+    st.session_state['page_neg'] = 1
+    st.session_state['page_pos'] = 1
+    st.session_state['page_net'] = 1
+    st.session_state['page_all'] = 1
 
 # --- SIDEBAR: INPUT DATA ---
 with st.sidebar:
     st.header("🔍 Filter Pencarian")
     
-    # Value default dikosongkan agar menampilkan semua data
-    keyword = st.text_input("Kata Kunci", value="", placeholder="Ketik kata kunci...", help="Biarkan kosong untuk melihat semua data", on_change=reset_page)
+    # on_change memanggil reset_all_pages agar saat filter ganti, semua tab balik ke hal 1
+    keyword = st.text_input("Kata Kunci", value="", placeholder="Ketik kata kunci...", help="Biarkan kosong untuk melihat semua data", on_change=reset_all_pages)
     
-    exclude_word = st.text_input("Kecualikan Kata (Opsional)", value="KUA", help="Kata yang tidak boleh ada dalam tweet", on_change=reset_page)
+    exclude_word = st.text_input("Kecualikan Kata (Opsional)", value="", placeholder="Contoh: KUA", help="Kata yang tidak boleh ada dalam tweet", on_change=reset_all_pages)
     
     st.markdown("---")
     st.header("⚙️ Pengaturan Tabel")
@@ -81,7 +75,7 @@ with st.sidebar:
         options=[10, 20, 50, 100],
         index=0,
         help="Pilih berapa banyak data yang ingin ditampilkan dalam satu halaman.",
-        on_change=reset_page
+        on_change=reset_all_pages
     )
     
     st.caption("*Tekan Enter setelah mengetik kata kunci untuk memperbarui.*")
@@ -103,13 +97,10 @@ if df is None:
 else:
     # 1. Filter Data
     if keyword:
-        # Jika ada keyword, filter pakai Regex
         mask_include = df['text'].str.contains(r'\b' + re.escape(keyword) + r'\b', case=False, regex=True, na=False)
     else:
-        # Jika keyword kosong, ambil SEMUA data (semua True)
         mask_include = pd.Series([True] * len(df))
         
-    # Filter Exclude
     if exclude_word:
         mask_exclude = df['text'].str.contains(r'\b' + re.escape(exclude_word) + r'\b', case=False, regex=True, na=False)
         df_filtered = df[mask_include & ~mask_exclude].copy()
@@ -153,35 +144,38 @@ else:
         st.markdown("---")
         st.subheader(f"2. Eksplorasi Data")
         
-        # Jika keyword kosong, tab default "All Data". Jika ada keyword, tetap sama.
         tab_neg, tab_pos, tab_net, tab_all = st.tabs(["🔴 Negative", "🟢 Positive", "⚪ Neutral", "📂 All Data"])
         
+        # FUNGSI PAGINATION YANG DIPERBAIKI (STATE TERPISAH)
         def paginated_dataframe(dataset, key_prefix):
             if dataset.empty:
                 st.write("Tidak ada data.")
                 return
 
+            # 1. Buat Key Unik untuk State Halaman ini
+            session_key = f"page_{key_prefix}"
+            
+            # 2. Inisialisasi jika belum ada
+            if session_key not in st.session_state:
+                st.session_state[session_key] = 1
+
             total_rows = len(dataset)
             total_pages = math.ceil(total_rows / limit_rows)
             
-            # Proteksi agar halaman tidak melebihi total halaman saat ganti filter
-            if st.session_state.page_number > total_pages:
-                st.session_state.page_number = 1
+            # 3. Proteksi Halaman (Hanya untuk state ini)
+            if st.session_state[session_key] > total_pages:
+                st.session_state[session_key] = 1
             
-            current_page = st.session_state.page_number
+            current_page = st.session_state[session_key]
             start_idx = (current_page - 1) * limit_rows
             end_idx = start_idx + limit_rows
             
             # Slice data
             batch_df = dataset.iloc[start_idx:end_idx].copy()
-            
-            # Pembulatan Data
             batch_df['skor_polaritas'] = batch_df['skor_polaritas'].round(4)
 
-            # Hitung tinggi tabel dinamis
             calc_height = (len(batch_df) * 35) + 38
             
-            # TAMPILKAN TABEL (Urutan Kolom: Tweet, Label, Skor)
             st.dataframe(
                 batch_df[['text', 'sentimen_kategori', 'skor_polaritas']], 
                 use_container_width=True, 
@@ -194,17 +188,24 @@ else:
                 }
             )
             
-            # Kontrol Pagination
             st.markdown(f"<div class='page-info'>Halaman {current_page} dari {total_pages} (Total: {total_rows} data)</div>", unsafe_allow_html=True)
             
+            # 4. Navigasi dengan Callback Khusus
             col_prev, col_spacer, col_next = st.columns([1, 4, 1])
+            
+            # Fungsi Callback Navigasi
+            def prev_callback():
+                st.session_state[session_key] -= 1
+            def next_callback():
+                st.session_state[session_key] += 1
+
             with col_prev:
-                st.button("⬅️ Sebelumnya", key=f"{key_prefix}_prev", on_click=prev_page, disabled=(current_page == 1))
+                st.button("⬅️ Sebelumnya", key=f"btn_prev_{key_prefix}", on_click=prev_callback, disabled=(current_page == 1))
             
             with col_next:
-                st.button("Selanjutnya ➡️", key=f"{key_prefix}_next", on_click=next_page, disabled=(current_page == total_pages))
+                st.button("Selanjutnya ➡️", key=f"btn_next_{key_prefix}", on_click=next_callback, disabled=(current_page == total_pages))
 
-        # Render Tabs
+        # Render Tabs dengan Key Unik ("neg", "pos", "net", "all")
         with tab_neg:
             st.markdown("##### Data Negative")
             df_neg = df_filtered[df_filtered['sentimen_kategori'] == 'Negative'].sort_values('skor_polaritas', ascending=True)
@@ -222,7 +223,6 @@ else:
 
         with tab_all:
             st.markdown("##### Semua Data (Terfilter)")
-            # Jika All Data, urutkan berdasarkan index asli atau skor
             paginated_dataframe(df_filtered, "all")
 
     else:
