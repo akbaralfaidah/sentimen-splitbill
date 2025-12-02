@@ -60,7 +60,7 @@ st.markdown("""
 st.title("📊 Analisis Sentimen Isu Split Bill")
 
 # --- MANAJEMEN STATE TERPISAH (SOLUSI BUG PAGINATION) ---
-# Kita buat variabel halaman khusus untuk setiap tab
+# Setiap tab punya ingatan halaman sendiri-sendiri
 if 'page_all' not in st.session_state: st.session_state.page_all = 1
 if 'page_neg' not in st.session_state: st.session_state.page_neg = 1
 if 'page_pos' not in st.session_state: st.session_state.page_pos = 1
@@ -72,7 +72,7 @@ def reset_all_pages():
     st.session_state.page_pos = 1
     st.session_state.page_net = 1
 
-# Fungsi khusus untuk tombol loncat (Locator) -> Mengubah halaman 'All Data'
+# Fungsi khusus untuk tombol loncat (Locator)
 def jump_to_page_all(target_page):
     st.session_state.page_all = target_page
 
@@ -85,6 +85,7 @@ with st.sidebar:
     st.header("🔍 Mode 1: Filter Data")
     st.caption("Gunakan ini untuk menyaring data.")
     
+    # Filter Data (Reset halaman jika filter berubah)
     filter_keyword = st.text_input("Filter Kata", value="", placeholder="Hanya tampilkan yang berisi...", on_change=reset_all_pages)
     exclude_word = st.text_input("Kecualikan Kata", value="", placeholder="Contoh: KUA", on_change=reset_all_pages)
     
@@ -120,6 +121,7 @@ if df is None:
     st.error("❌ File 'HASIL_AKHIR_SKOR_POLARITAS.csv' tidak ditemukan.")
 else:
     # 1. Logika Filter Data
+    # case=False MEMBUAT PENCARIAN HURUF BESAR/KECIL SAMA SAJA
     if filter_keyword:
         mask_include = df['text'].str.contains(r'\b' + re.escape(filter_keyword) + r'\b', case=False, regex=True, na=False)
     else:
@@ -146,9 +148,23 @@ else:
     if not df_filtered.empty:
         df_filtered['sentimen_kategori'] = df_filtered['skor_polaritas'].apply(categorize_sentiment)
 
+        # --- HITUNG RATA-RATA POLARITAS (FITUR BARU) ---
+        avg_polarity = df_filtered['skor_polaritas'].mean()
+        
+        # Tentukan kategori rata-rata
+        if avg_polarity > 0:
+            avg_cat = "Positive"
+            avg_color = "green"
+        elif avg_polarity < 0:
+            avg_cat = "Negative"
+            avg_color = "red"
+        else:
+            avg_cat = "Neutral"
+            avg_color = "gray"
+
         # 3. LOGIKA PENCARI POSISI (LOCATOR)
         if locator_keyword:
-            # Cari di dalam df_filtered (konteks All Data)
+            # case=False MEMBUAT PENCARIAN HURUF BESAR/KECIL SAMA SAJA
             matches = df_filtered[df_filtered['text'].str.contains(r'\b' + re.escape(locator_keyword) + r'\b', case=False, regex=True, na=False)]
             
             if not matches.empty:
@@ -175,8 +191,30 @@ else:
             else:
                 st.error(f"❌ Kata '{locator_keyword}' tidak ditemukan dalam data yang sedang ditampilkan.")
 
+        # --- BAGIAN STATISTIK (DIPERBARUI DENGAN RATA-RATA) ---
+        st.subheader("1. Statistik Ringkas")
+        
+        # Gunakan 5 kolom agar muat untuk rata-rata
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        total_tweet = len(df_filtered)
+        counts = df_filtered['sentimen_kategori'].value_counts()
+        
+        def get_count(cat): return counts.get(cat, 0)
+        def get_pct(cat): return (get_count(cat) / total_tweet * 100) if total_tweet > 0 else 0
+
+        with col1: st.metric("Total Data", f"{total_tweet}")
+        with col2: st.metric("Positive", f"{get_count('Positive')}", f"{get_pct('Positive'):.1f}%")
+        with col3: st.metric("Neutral", f"{get_count('Neutral')}", f"{get_pct('Neutral'):.1f}%", delta_color="off")
+        with col4: st.metric("Negative", f"{get_count('Negative')}", f"{get_pct('Negative'):.1f}%", delta_color="inverse")
+        
+        # Kolom Baru: Rata-Rata Polaritas
+        with col5:
+            st.metric("Rata-Rata Skor", f"{avg_polarity:.4f}", f"{avg_cat}")
+
         # --- BAGIAN TABEL ---
-        st.subheader("Data Tabel")
+        st.markdown("---")
+        st.subheader("2. Data Tabel")
         
         # Tab
         tab_neg, tab_pos, tab_net, tab_all = st.tabs(["🔴 Negative", "🟢 Positive", "⚪ Neutral", "📂 All Data"])
@@ -186,13 +224,13 @@ else:
                 st.write("Tidak ada data.")
                 return
 
-            # Tentukan nama variabel state yang dipakai (page_all, page_neg, dst)
+            # Menggunakan kunci state yang berbeda untuk setiap tab (page_all, page_neg, dll)
             state_key = f"page_{key_prefix}"
 
             total_rows = len(dataset)
             total_pages = math.ceil(total_rows / limit_rows)
             
-            # PROTEKSI HALAMAN (Hanya untuk state tab ini)
+            # PROTEKSI HALAMAN: Reset ke 1 jika halaman saat ini melebihi total halaman (misal abis filter data)
             if st.session_state[state_key] > total_pages:
                 st.session_state[state_key] = 1
             
